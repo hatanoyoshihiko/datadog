@@ -1,11 +1,12 @@
-import requests
 import csv
 import json
 import logging
 import argparse
 import sys
 import glob
-import os
+from datadog_api_client import ApiClient, Configuration
+from datadog_api_client.v1.api.monitors_api import MonitorsApi
+from datadog_api_client.v1.models import *
 
 # ログの設定
 logging.basicConfig(filename='datadog_monitor.log', level=logging.INFO,
@@ -26,50 +27,43 @@ if not args.action or not args.file:
 DATADOG_API_KEY = input("Please enter your Datadog API Key: ")
 DATADOG_APP_KEY = input("Please enter your Datadog Application Key: ")
 
-# ヘッダー情報
-headers = {
-    'Content-Type': 'application/json',
-    'DD-API-KEY': DATADOG_API_KEY,
-    'DD-APPLICATION-KEY': DATADOG_APP_KEY
-}
+# Datadog APIクライアントの設定
+configuration = Configuration()
+configuration.api_key['apiKeyAuth'] = DATADOG_API_KEY
+configuration.api_key['appKeyAuth'] = DATADOG_APP_KEY
 
 # モニターのエクスポート
 def export_monitors(csv_file):
     try:
-        with open(csv_file, 'r', encoding='utf-8') as file:
-            csv_reader = csv.reader(file)
-            next(csv_reader)  # 1行目のヘッダー "id" をスキップ
-            for row in csv_reader:
-                monitor_id = row[0]
-                response = requests.get(f'https://api.datadoghq.com/api/v1/monitor/{monitor_id}', headers=headers)
-                if response.status_code == 200:
-                    monitor_data = response.json()
-                    # Unicodeエスケープを無効にしてファイル出力
+        with ApiClient(configuration) as api_client:
+            api_instance = MonitorsApi(api_client)
+            with open(csv_file, 'r', encoding='utf-8') as file:
+                csv_reader = csv.reader(file)
+                next(csv_reader)  # 1行目のヘッダー "id" をスキップ
+                for row in csv_reader:
+                    monitor_id = int(row[0])
+                    monitor_data = api_instance.get_monitor(monitor_id)
                     with open(f'{monitor_id}.json', 'w', encoding='utf-8') as json_file:
-                        json.dump(monitor_data, json_file, indent=4, ensure_ascii=False)
+                        json.dump(monitor_data.to_dict(), json_file, indent=4, ensure_ascii=False)
                     logging.info(f"Successfully exported monitor ID: {monitor_id}")
-                else:
-                    logging.error(f"Failed to export monitor ID: {monitor_id}, Status Code: {response.status_code}, Response: {response.text}")
     except Exception as e:
         logging.error(f"Error during export process: {e}")
 
 # モニターのインポート
 def import_monitors(json_pattern):
     try:
-        # 指定されたパターンに一致するすべてのファイルを取得
-        json_files = glob.glob(json_pattern)
-        if not json_files:
-            print("No JSON files found matching the pattern.")
-            return
+        with ApiClient(configuration) as api_client:
+            api_instance = MonitorsApi(api_client)
+            json_files = glob.glob(json_pattern)
+            if not json_files:
+                print("No JSON files found matching the pattern.")
+                return
 
-        for json_file in json_files:
-            with open(json_file, 'r', encoding='utf-8') as file:
-                monitor_data = json.load(file)
-                response = requests.post('https://api.datadoghq.com/api/v1/monitor', headers=headers, json=monitor_data)
-                if response.status_code == 200 or response.status_code == 201:
+            for json_file in json_files:
+                with open(json_file, 'r', encoding='utf-8') as file:
+                    monitor_data = json.load(file)
+                    api_instance.create_monitor(monitor_data)
                     logging.info(f"Successfully imported monitor from file: {json_file}")
-                else:
-                    logging.error(f"Failed to import monitor from file: {json_file}, Status Code: {response.status_code}, Response: {response.text}")
     except Exception as e:
         logging.error(f"Error during import process: {e}")
 
