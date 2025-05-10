@@ -1,0 +1,45 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: List Datadog Invite-Pending users per Org
+
+Globals:
+  Function:
+    Runtime: python3.13
+    Timeout: 60
+    MemorySize: 256
+    Layers:
+      - !Ref RequestsLayer
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: dd-user-invite-pending
+
+Resources:
+  ListInvitePendingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}"
+      CodeUri: src/app
+      Handler: lambda_function.lambda_handler
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: "*"
+      Environment:
+        Variables:
+          SECRET_NAME : ddOrgSecret
+          DATADOG_SITE: datadoghq.com
+
+  RequestsLayer:
+    Type: AWS::Serverless::LayerVersion
+    Metadata:
+      BuildMethod: python3.13
+      BuildArchitecture: x86_64    
+    Properties:
+      LayerName: requests-py-lib
+      Description: requests library for Datadog script
+      ContentUri: layer
+      CompatibleRuntimes:
+        - python3.13
